@@ -1,0 +1,475 @@
+---
+title: "Robert Novo Project Appendix"
+author: "Robert Novo"
+date: "5/13/2023"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 6, fig.asp = 0.618, out.width = "70%", fig.align = "center")
+```
+
+```{r Load libraries, results='hide'}
+# Load libraries ----------------------------------------------------------
+
+library(visdat) # For visualizing missing data
+library(ggplot2) # For more cool visualizations
+library(dplyr) # For doing some data transformations
+library(forcats) # For more visuals
+library(corrr) # For looking at correlation coefficient data easily
+library(olsrr) # For stepwise regression
+library(QuantPsyc) # For standardized beta
+library(car) # For VIF calculations
+```
+
+```{r Load data and select columns, results='hide'}
+# Load data ---------------------------------------------------------------
+
+data_raw <- read.csv("/Users/robertnovo/Desktop/stat214/Project/Baseline_Data_Insight1b.csv")
+
+
+# Data cleaning --------------------------------------------------
+
+# Which columns will I remove from the model?
+colnames(data)
+
+# SubjectNum: R already has row numbers, so I don't need that column. 
+# I also won't use the confidence column. 
+# Also, I don't need the Tech column, that just tells me who did the MRI scans.
+df <- subset(data_raw, select = -c(SubjectNum, Confidence, Tech)) # df will be the data frame I use to do my analysis
+
+# Volume of interest (VOI) is just a feature of the MRI scan,
+# not saying anything about an individual person, so I will drop it.
+# Also, scanfrac is another feature of the MRI scan that doesn't say anything
+# about the patient themself, so I will drop it too. 
+df <- subset(df, select = -c(VOI_RL, VOI_AP, scanfrac_Ant_Right, scanfrac_Pstr_Right, 
+                             scanfrac_Ant_Left, scanfrac_Pstr_Left,
+                             scanfrac_WM_Left, scanfrac_WM_Right))
+
+# The readme.txt tells me that VO2max_absolute is simply relative VO2max * Mass/1000, 
+# and that Fat_Free_VO2max is VO2max_absolute/Total_Lean_Mass. Since I want to predict
+# VO2max_rel (relative VO2max), I will drop these two variables
+df <- subset(df, select = -c(VO2max_abs, Fat_Free_VO2max))
+```
+
+```{r Find and address missing values}
+# Missing values ----------------------------------------------------------
+# Let's see what data is missing
+vis_miss(df, cluster = TRUE, sort_miss = TRUE)
+# It seems like all columns that start with tNAA or GM have the most missing data
+
+# Let's look at tNAA_Cr (NAA/Cr ratio) distribution
+par(mfrow = c(2, 3))
+hist(df$tNAA_Cr_Ant_Left)
+hist(df$tNAA_Cr_Ant_Right)
+hist(df$tNAA_Cr_Pstr_Left)
+hist(df$tNAA_Cr_Pstr_Right)
+hist(df$tNAA_Cr_WM_Left)
+hist(df$tNAA_Cr_WM_Right)
+
+```
+```{r}
+# The data seem normally distributed with low SD so I will impute using the mean
+
+df$tNAA_Cr_Ant_Left[is.na(df$tNAA_Cr_Ant_Left)] <- mean(df$tNAA_Cr_Ant_Left, na.rm = TRUE)
+df$tNAA_Cr_Ant_Right[is.na(df$tNAA_Cr_Ant_Right)] <- mean(df$tNAA_Cr_Ant_Right, na.rm = TRUE)
+df$tNAA_Cr_Pstr_Left[is.na(df$tNAA_Cr_Pstr_Left)] <- mean(df$tNAA_Cr_Pstr_Left, na.rm = TRUE)
+df$tNAA_Cr_Pstr_Right[is.na(df$tNAA_Cr_Pstr_Right)] <- mean(df$tNAA_Cr_Pstr_Right, na.rm = TRUE)
+df$tNAA_Cr_WM_Left[is.na(df$tNAA_Cr_WM_Left)] <- mean(df$tNAA_Cr_WM_Left, na.rm = TRUE)
+df$tNAA_Cr_WM_Right[is.na(df$tNAA_Cr_WM_Right)] <- mean(df$tNAA_Cr_WM_Right, na.rm = TRUE)
+
+# Let's look at GM (gray matter fraction)
+par(mfrow = c(2, 3))
+hist(df$GM_Ant_Left)
+hist(df$GM_Ant_Right)
+hist(df$GM_Pstr_Left)
+hist(df$GM_Pstr_Right)
+hist(df$GM_WM_Left)
+hist(df$GM_WM_Right)
+
+```
+
+```{r}
+# These data seem to be more skewed, so I will impute using median
+df$GM_Ant_Left[is.na(df$GM_Ant_Left)] <- median(df$GM_Ant_Left, na.rm = TRUE)
+df$GM_Ant_Right[is.na(df$GM_Ant_Right)] <- median(df$GM_Ant_Right, na.rm = TRUE)
+df$GM_Pstr_Left[is.na(df$GM_Pstr_Left)] <- median(df$GM_Pstr_Left, na.rm = TRUE)
+df$GM_Pstr_Right[is.na(df$GM_Pstr_Right)] <- median(df$GM_Pstr_Right, na.rm = TRUE)
+df$GM_WM_Left[is.na(df$GM_WM_Left)] <- median(df$GM_WM_Left, na.rm = TRUE)
+df$GM_WM_Right[is.na(df$GM_WM_Right)] <- median(df$GM_WM_Right, na.rm = TRUE)
+
+# White matter fraction
+par(mfrow = c(2, 3))
+hist(df$WM_Ant_Left) 
+hist(df$WM_Ant_Right)
+hist(df$WM_Pstr_Left)
+hist(df$WM_Pstr_Right) # the three above seem normally disributed; these three
+hist(df$WM_WM_Left) # seem right-skewed
+hist(df$WM_WM_Right)
+```
+
+```{r}
+# 3 imputed using mean; 3 using median
+df$WM_Ant_Left[is.na(df$WM_Ant_Left)] <- mean(df$WM_Ant_Left, na.rm = TRUE)
+df$WM_Ant_Right[is.na(df$WM_Ant_Right)] <- mean(df$WM_Ant_Right, na.rm = TRUE)
+df$WM_Pstr_Left[is.na(df$WM_Pstr_Left)] <- mean(df$WM_Pstr_Left, na.rm = TRUE)
+df$WM_Pstr_Right[is.na(df$WM_Pstr_Right)] <- median(df$WM_Pstr_Right, na.rm = TRUE)
+df$WM_WM_Left[is.na(df$WM_WM_Left)] <- median(df$WM_WM_Left, na.rm = TRUE)
+df$WM_WM_Right[is.na(df$WM_WM_Right)] <- median(df$WM_WM_Right, na.rm = TRUE)
+
+# CSF
+par(mfrow = c(2, 3))
+hist(df$CSF_Ant_Right) # left skew
+hist(df$CSF_Ant_Left) # left skew
+hist(df$CSF_WM_Right) # left skew
+hist(df$CSF_WM_Left) # left skew
+hist(df$CSF_Pstr_Right) # left skew
+hist(df$CSF_Pstr_Left) # left skew
+
+```
+
+```{r}
+# These data are all left skewed; will impute with median
+df$CSF_Ant_Right[is.na(df$CSF_Ant_Right)] <- median(df$CSF_Ant_Right, na.rm = TRUE)
+df$CSF_Ant_Left[is.na(df$CSF_Ant_Left)] <- median(df$CSF_Ant_Left, na.rm = TRUE)
+df$CSF_WM_Right[is.na(df$CSF_WM_Right)] <- median(df$CSF_WM_Right, na.rm = TRUE)
+df$CSF_WM_Left[is.na(df$CSF_WM_Left)] <- median(df$CSF_WM_Left, na.rm = TRUE)
+df$CSF_Pstr_Right[is.na(df$CSF_Pstr_Right)] <- median(df$CSF_Pstr_Right, na.rm = TRUE)
+df$CSF_Pstr_Left[is.na(df$CSF_Pstr_Left)] <- median(df$CSF_Pstr_Left, na.rm = TRUE)
+
+# Visualize missing data again
+vis_miss(df, cluster = TRUE, sort_miss = TRUE)
+
+
+```
+
+```{r}
+# Now it's just a few missing values in height, bmi, mass, lean mass, wbtpf,
+# and vo2max
+sapply(df, function(y) sum(length(which(is.na(y))))) # See how many NAs in each column
+
+# Height
+hist(df$Height) # Normal
+df$Height[is.na(df$Height)] <- mean(df$Height, na.rm = TRUE)
+
+# BMI
+hist(df$BMI) # Left skew
+df$BMI[is.na(df$BMI)] <- mean(df$BMI, na.rm = TRUE)
+
+# Mass
+hist(df$Mass) # Left skew
+df$Mass[is.na(df$Mass)] <- median(df$Mass, na.rm = TRUE)
+
+```
+
+```{r}
+# Total lean mass, wbtpf, vo2max
+hist(df$Total_Lean_Mass) # Uniform
+hist(df$WBTPF) # Somewhat unform
+hist(df$VO2max_rel) # Normal
+# These variables are so important to the analysis that I don't want to impute them
+# There's only 7 missing values for each of these three variables, and they're all
+# in the same row. They make up a tiny portion of the data (7/435 observations)
+# so I'm just going to drop them from the dataframe
+
+df <- df %>% 
+  filter(!is.na(Total_Lean_Mass) & !is.na(WBTPF) & !is.na(VO2max_rel))
+
+# Visualize missing data again
+vis_miss(df, cluster = TRUE, sort_miss = TRUE)
+# No more missing data (yay)
+
+par(mfrow = c(1, 1)) # Fix graph display
+
+```
+
+```{r Hypothesizing E(y)}
+# Hypothesizing E(y) ------------------------------------------------------
+
+# I know VO2peak is closely associated with age, so let's make that our base
+# model
+base_model <- lm(VO2max_rel ~ Age, data = df)
+summary(base_model)
+confint(base_model)
+
+plot(df$Age, df$VO2max_rel, xlab = 'Age', ylab = 'VO2peak', main = 'VO2peak vs. Age')
+abline(base_model, col = 'red')
+
+```
+
+```{r Add sex to base model}
+# Lets add sex
+base_model <- lm(VO2max_rel ~ Age + Sex, data = df)
+summary(base_model)
+
+crPlots(base_model)
+```
+
+```{r}
+# First, I want to see the correlation between relativeVO2max and 
+# all other variables
+# There's 33 variables in this dataframe, so I'll use a package, corrr, to
+# make my analysis easier
+correlation <- df %>% 
+  correlate() %>% 
+  focus(VO2max_rel) %>% 
+  arrange(desc(VO2max_rel)) %>% 
+  print(n = Inf)
+
+# Let's visualize this using ggplot
+ggplot(correlation, aes(x = fct_reorder(term, VO2max_rel), y = VO2max_rel)) +
+  geom_col(aes(fill = VO2max_rel > 0), show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Correlation coefficient (r) between VO2max_rel and 33 independent variables ") +
+  xlab("Variable") +
+  ylab("Correlation coefficient with VO2max_rel") 
+```
+
+```{r results='hide'}
+# Height, followed by lean mass, and white matter fraction, seem to have the 
+# strongest positive association with VO2peak
+# Whole body total percent fat (WBTPF) seems to have a very strong negative
+# association with VO2peak
+pairs(df[, c('VO2max_rel', 'Height', 'Total_Lean_Mass',
+             'tNAA_Cr_WM_Left')], lower.panel = NULL, main = 'Scatterplots of vars with + linear association to relative VO2max')
+
+pairs(df[, c('Age', 'BMI','WBTPF')], lower.panel = NULL,
+      main = 'Scatterplots of vars with - linear association to relative VO2max')
+
+
+```
+
+```{r}
+pairs(df[, c('VO2max_rel', 'Height', 'Total_Lean_Mass',
+             'tNAA_Cr_WM_Left', 'Age', 'BMI','WBTPF')], lower.panel = NULL, 
+      main = 'Scatterplots of vars with linear association to relative VO2max')
+```
+
+```{r}
+# For now, my hypothesized model will be:
+model_one <- lm(VO2max_rel ~ Height + Total_Lean_Mass + tNAA_Cr_WM_Left +
+              Age + BMI + WBTPF, data = df)
+summary(model_one)
+crPlots(model_one)
+
+# This model seems pretty good, with an F-stat < 2.2*10^-16, and
+# an R squared of 0.6707
+```
+
+```{r}
+# Let's add sex
+model_one_sex <- lm(VO2max_rel ~ Height + Total_Lean_Mass + tNAA_Cr_WM_Left +
+                  Age + BMI + WBTPF + Sex, data = df)
+summary(model_one_sex)
+# Not much better
+```
+
+```{r Stepwise regression}
+# Stepwise regression -----------------------------------------------------
+
+# Let's see if stepwise regression can identify any other relevant variables
+
+model_all <- lm(VO2max_rel ~ ., data = df)
+summary(model_all)
+# R^2=0.6729
+```
+
+```{r}
+# We'll do forward selection first 
+ols_step_forward_p(model_all, penter = 0.05)
+# The only variables entered were WBTPF and Age
+model_forward <- lm(VO2max_rel ~ WBTPF + Age, data = df)
+summary(model_forward)
+# R^2=0.6705
+```
+
+```{r}
+# Backward selection----
+ols_step_backward_p(model_all, prem = 0.05)
+# Age, mass, lean mass, wbtpf, gm_ant_right, wm, csf, were kept
+model_backward <- lm(VO2max_rel ~ Age + Mass + Total_Lean_Mass +
+                       WBTPF + GM_Ant_Left + WM_Ant_Left +
+                       CSF_Ant_Left + GM_Ant_Right + WM_Ant_Right +
+                       CSF_Ant_Right + GM_WM_Left + WM_WM_Left +
+                       CSF_WM_Left + GM_WM_Right + WM_WM_Right +
+                       CSF_WM_Right, data = df)
+summary(model_backward)
+# R^2=0.6714
+```
+
+```{r}
+# Stepwise selection
+ols_step_both_p(model_all, penter=0.05, prem=0.1)
+# Variables kept: WBTPF, age, csf_whitematter_right, and wm_pstr_left
+model_stepwise <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left, data = df)
+summary(model_stepwise)
+# R^2=0.6741
+```
+
+```{r}
+# Interestingly, all three stepwise approahces yielded different results
+# I'm curious about sex—let me see how VO2peak varies across sex
+vo2_sex <- data.frame('male' = mean(df$VO2max_rel[df$Sex == 'M'], na.rm = TRUE), 
+           'female' = mean(df$VO2max_rel[df$Sex == 'F'], na.rm = TRUE)
+           )
+# Is this a significant difference?
+t.test(df$VO2max_rel[df$Sex == 'M'], df$VO2max_rel[df$Sex == 'F'])
+# Yes, with p < 10^-16
+# So I'll include sex in the analysis
+```
+
+```{r, results='hide'}
+model_two <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left,
+                data = df)
+summary(model_two)
+# R^2=0.6781
+
+# What if you add sex
+model_three <- lm(VO2max_rel ~ Height + Total_Lean_Mass + tNAA_Cr_WM_Left +
+                  Age + BMI + WBTPF + Sex, data = df)
+summary(model_three)
+# R^2=0.6781
+# A significant model, but R squared isn't improved
+```
+
+```{r Multicolinearity}
+# Let's include this in the model and test for multicollinearity 
+# by calculating variance inflation factor (VIF)
+vif(model_two)
+# Seems like there's no multicollinearity
+pred_one <- model_two
+```
+
+```{r}
+# Improving prediction model ----------------------------------------------
+
+# Let's try to improve our prediction model with residual analysis
+plot(fitted(pred_one), pred_one$residuals, main = "First-order model")
+# The errors seem pretty normally distributed; 
+# perhaps greater at higher values
+```
+```{r}
+# Perhaps we can try a poisson transformation
+df$poisson <- sqrt(df$VO2max_rel)
+pred_poisson <- lm(poisson ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex,
+                data = df)
+summary(pred_poisson)
+plot(fitted(pred_poisson), pred_poisson$residuals, main = "Poisson Transformation")
+# This transformation doesn't improve R^2 (0.67 in both cases), nor does it
+# affect p-value of F-test
+```
+```{r}
+# How about multiplicative transformation? 
+df$multiplicative <- log(df$VO2max_rel)
+pred_multiplicative <- lm(multiplicative ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex, data = df)
+summary(pred_multiplicative)
+plot(fitted(pred_multiplicative), pred_multiplicative$residuals, main = "Multiplicative Transformation")
+# This transformation doesn't improve R^2 (0.68 in both cases), nor does it
+# affect p-value of F-test
+```
+```{r}
+# How about partial residual plots?
+crPlots(pred_one)
+# The variables seem to have linear relationships
+```
+
+```{r results='hide'}
+# I wonder if there is interaction between age and sex
+pred_two <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex +
+                 Age*Sex, data = df)
+summary(pred_two)
+anova(pred_one, pred_two, test = 'F') # nested F test says this doesn't help
+
+
+# WBTPF and age?
+pred_three <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left +
+                   Age*WBTPF, data = df)
+summary(pred_three)
+anova(pred_one, pred_three, test = 'F') # nested F test
+# Also no
+
+# Sex and WBTPF?
+pred_four <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex +
+                   Sex*WBTPF, data = df)
+summary(pred_four)
+anova(pred_one, pred_four, test = 'F') # nested F test
+
+# Age, sex, bmi?
+pred_five <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex +
+                   Age*WBTPF + Sex*WBTPF + Age*Sex+WBTPF, data = df)
+summary(pred_five)
+anova(pred_one, pred_five, test = 'F') # nested F test
+# Also no, but we're closer—p = 0.068
+
+# WBTPF^2?
+pred_six <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex +
+                   Age*WBTPF + Sex*WBTPF + Age*Sex+WBTPF + I(WBTPF^2), data = df)
+summary(pred_six)
+anova(pred_one, pred_six, test = 'F') # nested F test
+# Close; p = 0.0502
+```
+
+```{r, results='hide'}
+# WBTPF^2?
+pred_seven <- lm(VO2max_rel ~ WBTPF + Age + CSF_WM_Right + WM_Pstr_Left + Sex +
+                   Age*WBTPF + Sex*WBTPF + Age*Sex+WBTPF + I(WBTPF^2) +
+                   CSF_WM_Right*WBTPF + WM_Pstr_Left*WBTPF +
+                   CSF_WM_Right* WM_Pstr_Left, data = df)
+summary(pred_seven)
+anova(pred_one, pred_seven, test = 'F') # nested F test
+# Not better, p=0.14
+
+```
+
+```{r}
+# How are residuals on pred_six
+plot(pred_six$res)
+# Seem prety good
+```
+
+```{r}
+# Interpretation model ----------------------------------------------------
+interpret_one <- model_forward
+# This forward model was very simple
+
+# Let's look at its residuals
+plot(interpret_one$residuals)
+crPlots(interpret_one)
+# These also seem uniformly distributed
+```
+```{r}
+summary(interpret_one)
+# This model is simple with a high R^2. I'll see if adding any interaction/
+# quadratic terms improves it but it is good as is
+```
+
+```{r}
+interpret_two <- lm(VO2max_rel ~ WBTPF + Age + Sex, data = df)
+summary(interpret_two)
+anova(interpret_one, interpret_two, test = 'F')
+# Sex isn't worth the addition
+```
+
+```{r, results = 'hide'}
+# Body fat and age interaction
+interpret_three <- lm(VO2max_rel ~ WBTPF + Age + WBTPF*Age, data = df)
+summary(interpret_three)
+anova(interpret_one, interpret_three, test = 'F')
+
+# Body fat^2
+interpret_four <- lm(VO2max_rel ~ WBTPF + Age + I(WBTPF^2), data = df)
+summary(interpret_four)
+anova(interpret_one, interpret_four, test = 'F')
+
+# Body fat^2
+interpret_five <- lm(VO2max_rel ~ WBTPF + Age + I(Age^2), data = df)
+summary(interpret_five)
+anova(interpret_one, interpret_five, test = 'F')
+
+# None of these transformations were worth it. VO2 ~ WBTPF + Age is the best model
+```
+
+```{r Interpret interpret_one}
+confint(interpret_one)
+```
+
